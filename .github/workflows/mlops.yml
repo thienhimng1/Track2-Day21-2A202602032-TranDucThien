@@ -1,4 +1,4 @@
-name: MLOps Pipeline
+name: MLOps Pipeline CICD
 
 on:
   push:
