@@ -47,9 +47,12 @@ jobs:
         run: pip install -r requirements.txt
 
       - name: Authenticate to Cloud Storage
+        env:
+          GCP_SA_KEY: ${{ secrets.CLOUD_CREDENTIALS }}
         run: |
-          echo "${{ secrets.CLOUD_CREDENTIALS }}" > /tmp/sa-key.json
+          echo "$GCP_SA_KEY" > /tmp/sa-key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/sa-key.json" >> $GITHUB_ENV
+          dvc config --local remote.myremote.credentialpath /tmp/sa-key.json
 
       - name: Pull data with DVC
         run: dvc pull data/train_phase1.csv.dvc data/eval.csv.dvc
