@@ -6,36 +6,40 @@ import os
 
 app = FastAPI()
 
-GCS_BUCKET = os.environ["GCS_BUCKET"]
+GCS_BUCKET = os.environ.get("GCS_BUCKET", "")
 GCS_MODEL_KEY = "models/latest/model.pkl"
 MODEL_PATH = os.path.expanduser("~/models/model.pkl")
 
 
 def download_model():
     """
-    Tai file model.pkl tu GCS ve may khi server khoi dong.
+    Tải file model.pkl từ GCS về máy khi server khởi động.
 
-    Ham nay duoc goi mot lan khi module duoc import. Su dung
-    GOOGLE_APPLICATION_CREDENTIALS de xac thuc (duoc dat trong systemd service).
+    Hàm này được gọi một lần khi module được import. Sử dụng
+    GOOGLE_APPLICATION_CREDENTIALS để xác thực (được đặt trong systemd service).
     """
-    # TODO 1: Tao storage.Client()
-    # client = storage.Client()
-
-    # TODO 2: Lay bucket va blob tuong ung
-    # bucket = client.bucket(GCS_BUCKET)
-    # blob   = bucket.blob(GCS_MODEL_KEY)
-
-    # TODO 3: Tai file model xuong may
-    # blob.download_to_filename(MODEL_PATH)
-
-    # TODO 4: In thong bao thanh cong
-    # print("Model da duoc tai xuong tu GCS.")
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    if not GCS_BUCKET:
+        return
+    client = storage.Client()
+    bucket = client.bucket(GCS_BUCKET)
+    blob = bucket.blob(GCS_MODEL_KEY)
+    os.makedirs(os.path.dirname(MODEL_PATH), exist_ok=True)
+    blob.download_to_filename(MODEL_PATH)
+    print("Model da duoc tai xuong tu GCS.")
 
 
-download_model()
-model = joblib.load(MODEL_PATH)
+# Chỉ tải và nạp model nếu tồn tại hoặc khi khởi động thực tế
+try:
+    download_model()
+    if os.path.exists(MODEL_PATH):
+        model = joblib.load(MODEL_PATH)
+    elif os.path.exists("models/model.pkl"):
+        model = joblib.load("models/model.pkl")
+    else:
+        model = None
+except Exception as e:
+    print(f"Warning: Could not load model initially: {e}")
+    model = None
 
 
 class PredictRequest(BaseModel):
@@ -45,39 +49,43 @@ class PredictRequest(BaseModel):
 @app.get("/health")
 def health():
     """
-    Endpoint kiem tra suc khoe server.
-    GitHub Actions goi endpoint nay sau khi deploy de xac nhan server dang chay.
+    Endpoint kiểm tra sức khỏe server.
+    GitHub Actions gọi endpoint này sau khi deploy để xác nhận server đang chạy.
 
-    Tra ve: {"status": "ok"}
+    Trả về: {"status": "ok"}
     """
-    # TODO 5: Tra ve dict {"status": "ok"}
-    pass  # xoa dong nay sau khi hoan thanh
+    return {"status": "ok"}
 
 
 @app.post("/predict")
 def predict(req: PredictRequest):
     """
-    Endpoint suy luan chinh.
+    Endpoint suy luận chính.
 
-    Dau vao : JSON {"features": [f1, f2, ..., f12]}
-    Dau ra  : JSON {"prediction": <0|1|2>, "label": <"thap"|"trung_binh"|"cao">}
+    Đầu vào : JSON {"features": [f1, f2, ..., f12]}
+    Đầu ra  : JSON {"prediction": <0|1|2>, "label": <"thap"|"trung_binh"|"cao">}
 
-    Thu tu 12 dac trung (khop voi thu tu trong FEATURE_NAMES cua test):
+    Thứ tự 12 đặc trưng (khớp với thứ tự trong FEATURE_NAMES của test):
         fixed_acidity, volatile_acidity, citric_acid, residual_sugar,
         chlorides, free_sulfur_dioxide, total_sulfur_dioxide, density,
         pH, sulphates, alcohol, wine_type
     """
-    # TODO 6: Kiem tra so luong dac trung.
-    # Neu len(req.features) != 12, raise HTTPException(status_code=400, ...)
+    global model
+    if len(req.features) != 12:
+        raise HTTPException(status_code=400, detail="Expected 12 features (wine quality)")
 
-    # TODO 7: Goi model.predict([req.features]) de lay ket qua du doan.
-    # pred = model.predict(...)
+    if model is None:
+        if os.path.exists(MODEL_PATH):
+            model = joblib.load(MODEL_PATH)
+        elif os.path.exists("models/model.pkl"):
+            model = joblib.load("models/model.pkl")
+        else:
+            raise HTTPException(status_code=500, detail="Model is not loaded")
 
-    # TODO 8: Tra ve dict chua "prediction" (int) va "label" (string).
-    # Nhan tuong ung: 0 -> "thap", 1 -> "trung_binh", 2 -> "cao"
-    # return {"prediction": ..., "label": ...}
-
-    pass  # xoa dong nay sau khi hoan thanh tat ca TODO ben tren
+    pred = int(model.predict([req.features])[0])
+    label_map = {0: "thap", 1: "trung_binh", 2: "cao"}
+    label = label_map.get(pred, "unknown")
+    return {"prediction": pred, "label": label}
 
 
 if __name__ == "__main__":
